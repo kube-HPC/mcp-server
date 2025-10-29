@@ -212,14 +212,9 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
             parts.append(f"{k}: {desc}")
         tool_catalog = "\n".join(parts)
     else:
-        # sensible defaults based on common server tools
-        tool_catalog = (
-            "list_algorithms: returns list of algorithms from HKube as JSON\n"
-            "list_pipelines: returns list of pipelines from HKube as JSON\n"
-            "say_hello: simple hello string\n"
-            "quick_hello: simple hello string\n"
-            "default_tool: fallback tool when unsure"
-        )
+        # if we don't have local tools, we cannot perform orchestration
+        display("Cannot load local tools; tool orchestration requires available local tools.")
+        return 2
 
     got = ask_model_for_tool(mll_url, user_prompt, model, timeout, verify, tool_catalog)
     # ensure we always have a (decision, raw) tuple
@@ -484,9 +479,13 @@ def main() -> int:
     # always use local tools (server.py is launched)
     # args.local_tools concept removed; we always attempt to load local tools
 
-    # Always start interactive chat REPL
+    # Always start interactive chat REPL and show options menu
     print("Starting interactive chat against:", generate_url)
-    print("Type /quit or Ctrl-C to exit.\n")
+    print()
+    print("Options:")
+    print("- /quit or Ctrl-C to exit.")
+    print("- /tools to get all available tools")
+    print()
     local_tools = None
     try:
         local_tools = load_local_tools(server_path)
@@ -503,6 +502,18 @@ def main() -> int:
             if prompt.strip() in ("/quit", "/exit"):
                 break
             # support special /tool command inside REPL
+            # list available tools
+            if prompt.strip() == "/tools":
+                if local_tools:
+                    parts = []
+                    for name, fn in local_tools.items():
+                        desc = getattr(fn, "__doc__", "").strip() if getattr(fn, "__doc__", None) else ""
+                        parts.append(f"{name}: {desc}")
+                    display("Available tools:\n" + "\n".join(parts))
+                else:
+                    display("No local tools available")
+                continue
+
             if prompt.startswith("/tool "):
                 parts = prompt.split(maxsplit=1)
                 if len(parts) == 2 and parts[1].strip():

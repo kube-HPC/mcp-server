@@ -68,12 +68,6 @@ def quick_hello() -> str:
     return "Hello world!kgjfdjhsfdkgsdfgkdf"
 
 
-@mcp.tool()
-def default_tool() -> str:
-    """Should use it when it doesnt know what to do."""
-    return "Dont know what to do"
-
-
 if __name__ == "__main__":
     print("Starting MCP server...")
     mcp.run(transport='stdio')
