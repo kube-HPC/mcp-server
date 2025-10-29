@@ -15,6 +15,21 @@ from typing import Any
 
 import httpx
 
+# moved local imports to top-level per refactor request
+import os
+import re
+import io
+import contextlib
+import asyncio
+import importlib.util
+import threading
+import subprocess
+import atexit
+import signal
+
+# config loader
+from config import get_config  # type: ignore
+
 # Require Python 3.10
 if sys.version_info < (3, 10) or sys.version_info >= (3, 11):
     sys.stderr.write("mcp-cli requires Python 3.10.x. Please run with python3.10.\n")
@@ -37,8 +52,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tool", help="Invoke a server-side MCP tool by name (single-shot)")
     p.add_argument("--auto-tools", action="store_true", help="Ask the LLM whether a tool should be used and orchestrate the call")
     p.add_argument("--local-tools", action="store_true", help="Call tools directly from a local server.py instead of via MCP HTTP")
-    p.add_argument("--server-path", default="./server.py", help="Path to the local server.py exposing MCP tools (used with --local-tools)")
-    p.add_argument("--launch-server", action="store_true", help="Launch the server.py as a background process before invoking tools")
     p.add_argument("--server-args", nargs="*", default=[], help="Extra arguments to pass to the launched server.py")
     p.add_argument("--chat", action="store_true", help="Interactive chat REPL")
     p.add_argument("--stream", action="store_true", help="Ask server to stream responses if supported")
@@ -131,7 +144,6 @@ def ask_model_for_tool(mll_url: str, prompt: str, model: str, timeout: float, ve
             return parsed, response_text
         except Exception:
             # attempt to extract JSON substring
-            import re
             m = re.search(r"\{.*\}", response_text, re.DOTALL)
             if m:
                 try:
@@ -202,7 +214,6 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
     tool_out = None
     if local_tools is not None and tool_name in local_tools:
         # run local tool and capture stdout by executing and returning printed output
-        import io, contextlib
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
@@ -278,8 +289,6 @@ def load_local_tools(server_path: str) -> dict[str, Any]:
     """Dynamically load server.py and return a mapping of tool name -> callable.
     Assumes server.py defines functions with the tool names (e.g., list_algorithms).
     """
-    import importlib.util
-    import os
     spec = importlib.util.spec_from_file_location("local_server", os.path.abspath(server_path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot import {server_path}")
@@ -300,8 +309,6 @@ def invoke_local_tool(tools: dict[str, Any], tool_name: str, prompt: str) -> int
         return 2
     fn = tools[tool_name]
     # handle async functions
-    import asyncio
-
     try:
         if asyncio.iscoroutinefunction(fn):
             result = asyncio.run(fn()) if fn.__code__.co_argcount == 0 else asyncio.run(fn())
@@ -318,66 +325,67 @@ def invoke_local_tool(tools: dict[str, Any], tool_name: str, prompt: str) -> int
 
 def main() -> int:
     args = parse_args()
+    # load server path from config.yaml (config.get_config returns a dict)
+    _cfg = get_config() or {}
+    if not _cfg:
+        print("Failed to load configuration (config.yaml) via config.get_config(); exiting.", file=sys.stderr)
+        return 2
+    server_path = _cfg.get("server_path", "./server.py")
     base = args.url.rstrip("/")
     generate_url = base + "/api/generate"
     verify = not args.no_verify
 
     # if requested, launch server.py as a subprocess; auto-enable local-tools
+    # always launch server before doing anything; exit on failure
     server_proc = None
-    if args.launch_server:
-        import subprocess, atexit, signal
+    try:
+        cmd = [sys.executable, server_path] + list(args.server_args)
+        server_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print(f"Launched server process (pid={server_proc.pid})")
+        # stream server stdout/stderr to our console in background threads
 
-        try:
-            cmd = [sys.executable, args.server_path] + list(args.server_args)
-            server_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            print(f"Launched server process (pid={server_proc.pid})")
-            # stream server stdout/stderr to our console in background threads
-            import threading
-
-            def _pipe_reader(pipe, prefix):
-                try:
-                    for line in iter(pipe.readline, ""):
-                        if not line:
-                            break
-                        print(f"[server {prefix}] {line.rstrip()}")
-                except Exception:
-                    pass
-
-            if server_proc.stdout:
-                t_out = threading.Thread(target=_pipe_reader, args=(server_proc.stdout, 'OUT'), daemon=True)
-                t_out.start()
-            if server_proc.stderr:
-                t_err = threading.Thread(target=_pipe_reader, args=(server_proc.stderr, 'ERR'), daemon=True)
-                t_err.start()
-        except Exception as e:
-            print(f"Failed to launch server: {e}", file=sys.stderr)
-            return 2
-
-        # ensure cleanup on exit
-        def _cleanup():
+        def _pipe_reader(pipe, prefix):
             try:
-                if server_proc and server_proc.poll() is None:
-                    server_proc.terminate()
-                    server_proc.wait(timeout=5)
+                for line in iter(pipe.readline, ""):
+                    if not line:
+                        break
+                    print(f"[server {prefix}] {line.rstrip()}")
             except Exception:
                 pass
 
-        atexit.register(_cleanup)
-        # also catch SIGINT/SIGTERM to cleanup
+        if server_proc.stdout:
+            t_out = threading.Thread(target=_pipe_reader, args=(server_proc.stdout, 'OUT'), daemon=True)
+            t_out.start()
+        if server_proc.stderr:
+            t_err = threading.Thread(target=_pipe_reader, args=(server_proc.stderr, 'ERR'), daemon=True)
+            t_err.start()
+    except Exception as e:
+        print(f"Failed to launch server: {e}", file=sys.stderr)
+        return 2
+
+    # ensure cleanup on exit
+    def _cleanup():
         try:
-            import signal
-
-            def _handle(signum, frame):
-                _cleanup()
-                sys.exit(0)
-
-            signal.signal(signal.SIGINT, _handle)
-            signal.signal(signal.SIGTERM, _handle)
+            if server_proc and server_proc.poll() is None:
+                server_proc.terminate()
+                server_proc.wait(timeout=5)
         except Exception:
             pass
 
-        # when launching server, prefer local tools
-        args.local_tools = True
+    atexit.register(_cleanup)
+    # also catch SIGINT/SIGTERM to cleanup
+    try:
+        def _handle(signum, frame):
+            _cleanup()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, _handle)
+        signal.signal(signal.SIGTERM, _handle)
+    except Exception:
+        pass
+
+    # when launching server, prefer local tools
+    args.local_tools = True
 
     if args.chat:
         print("Starting interactive chat against:", generate_url)
@@ -385,7 +393,7 @@ def main() -> int:
         local_tools = None
         if args.local_tools:
             try:
-                local_tools = load_local_tools(args.server_path)
+                local_tools = load_local_tools(server_path)
             except Exception as e:
                 print(f"Failed to load local tools: {e}", file=sys.stderr)
                 local_tools = None
@@ -429,7 +437,7 @@ def main() -> int:
     if args.tool:
         if args.local_tools:
             try:
-                tools = load_local_tools(args.server_path)
+                tools = load_local_tools(server_path)
             except Exception as e:
                 print(f"Failed to load local tools: {e}", file=sys.stderr)
                 return 2
@@ -449,7 +457,7 @@ def main() -> int:
         local_tools = None
         if args.local_tools:
             try:
-                local_tools = load_local_tools(args.server_path)
+                local_tools = load_local_tools(server_path)
             except Exception as e:
                 print(f"Failed to load local tools: {e}", file=sys.stderr)
                 local_tools = None
