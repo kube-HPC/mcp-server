@@ -1,0 +1,1 @@
+python3.10 mcp-cli.py --auto-tools
