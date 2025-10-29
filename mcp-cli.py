@@ -14,6 +14,7 @@ import sys
 from typing import Any
 
 import httpx
+import logging
 
 # moved local imports to top-level per refactor request
 import os
@@ -29,6 +30,9 @@ import signal
 
 # config loader
 from config import get_config  # type: ignore
+
+# runtime debug toggle (set in main from config.debug)
+DEBUG = False
 
 # Require Python 3.10
 if sys.version_info < (3, 10) or sys.version_info >= (3, 11):
@@ -79,7 +83,14 @@ def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: floa
                             continue
                         try:
                             obj = json.loads(chunk)
-                            print_json(obj)
+                            # In non-debug mode only print the 'response' field if present
+                            if DEBUG:
+                                print_json(obj)
+                            else:
+                                if isinstance(obj, dict) and "response" in obj:
+                                    print(obj.get("response"))
+                                else:
+                                    print_json(obj)
                         except Exception:
                             print(chunk.decode("utf-8", errors="replace"))
             return 0
@@ -88,7 +99,18 @@ def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: floa
             resp.raise_for_status()
             try:
                 data = resp.json()
-                print_json(data)
+                # Only show full JSON when debugging; otherwise show only the 'response' key if present
+                if DEBUG:
+                    print_json(data)
+                else:
+                    if isinstance(data, dict) and "response" in data:
+                        print(data.get("response"))
+                    else:
+                        # fallback to entire text if response key missing
+                        try:
+                            print_json(data)
+                        except Exception:
+                            print(resp.text)
             except Exception:
                 print(resp.text)
             return 0
@@ -185,8 +207,8 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
     else:
         # defensive fallback
         decision, raw = None, None
-    # always show what the model returned for debugging
-    if raw:
+    # show raw model decision only in debug mode
+    if DEBUG and raw:
         print("Model decision response (raw):\n" + raw)
     if not decision:
         print("Model did not return a valid tool decision JSON.")
@@ -238,8 +260,8 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
             print(f"Remote tool call failed: {e}", file=sys.stderr)
             return 2
 
-    # print tool output for debugging
-    if tool_out is not None:
+    # print tool output for debugging (only when DEBUG)
+    if DEBUG and tool_out is not None:
         print("Tool output:\n" + str(tool_out))
 
     # send tool output back to the model for final answer
@@ -331,6 +353,19 @@ def main() -> int:
         print("Failed to load configuration (config.yaml) via config.get_config(); exiting.", file=sys.stderr)
         return 2
     server_path = _cfg.get("server_path", "./server.py")
+    # set debug flag from config
+    global DEBUG
+    DEBUG = bool(_cfg.get("debug", False))
+    if DEBUG:
+        logging.basicConfig(level=logging.DEBUG)
+        # enable httpx debug logs if desired
+        logging.getLogger("httpx").setLevel(logging.DEBUG)
+        logging.getLogger("httpcore").setLevel(logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+        # ensure httpx/httpcore do not emit debug HTTP Request/Response lines
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
     base = args.url.rstrip("/")
     generate_url = base + "/api/generate"
     verify = not args.no_verify
@@ -339,8 +374,46 @@ def main() -> int:
     # always launch server before doing anything; exit on failure
     server_proc = None
     try:
+        # ensure no previous server.py processes are running attached to this terminal
+        try:
+            pids_raw = subprocess.check_output(["pgrep", "-f", "server.py"], text=True).strip().splitlines()
+        except subprocess.CalledProcessError:
+            pids_raw = []
+        pids = []
+        for line in pids_raw:
+            try:
+                pid = int(line.strip())
+            except Exception:
+                continue
+            # skip our current process
+            if pid == os.getpid():
+                continue
+            pids.append(pid)
+        if pids:
+            print(f"Found existing server.py processes: {pids}. Terminating them to avoid stdin capture.")
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except Exception:
+                    pass
+            # wait briefly and force kill if still alive
+            import time
+
+            time.sleep(0.5)
+            for pid in pids:
+                try:
+                    os.kill(pid, 0)
+                    # still exists
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+                except Exception:
+                    # process gone
+                    pass
+
         cmd = [sys.executable, server_path] + list(args.server_args)
-        server_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        server_proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         print(f"Launched server process (pid={server_proc.pid})")
         # stream server stdout/stderr to our console in background threads
 
@@ -387,50 +460,50 @@ def main() -> int:
     # when launching server, prefer local tools
     args.local_tools = True
 
-    if args.chat:
-        print("Starting interactive chat against:", generate_url)
-        print("Type /quit or Ctrl-C to exit.\n")
-        local_tools = None
-        if args.local_tools:
-            try:
-                local_tools = load_local_tools(server_path)
-            except Exception as e:
-                print(f"Failed to load local tools: {e}", file=sys.stderr)
-                local_tools = None
+    # Always start interactive chat REPL
+    print("Starting interactive chat against:", generate_url)
+    print("Type /quit or Ctrl-C to exit.\n")
+    local_tools = None
+    if args.local_tools:
         try:
-            while True:
-                prompt = input("You: ")
-                if not prompt:
-                    continue
-                if prompt.strip() in ("/quit", "/exit"):
-                    break
-                # support special /tool command inside REPL
-                if prompt.startswith("/tool "):
-                    parts = prompt.split(maxsplit=1)
-                    if len(parts) == 2 and parts[1].strip():
-                        tool_name = parts[1].strip()
-                        if args.local_tools and local_tools is not None:
-                            invoke_local_tool(local_tools, tool_name, "")
-                        else:
-                            if not args.mcp_url:
-                                print("--mcp-url is required to invoke remote tools", file=sys.stderr)
-                            else:
-                                call_tool(args.mcp_url, tool_name, "", args.model, args.stream, args.timeout, verify, None)
-                        continue
+            local_tools = load_local_tools(server_path)
+        except Exception as e:
+            print(f"Failed to load local tools: {e}", file=sys.stderr)
+            local_tools = None
+    try:
+        while True:
+            prompt = input("You: ")
+            if not prompt:
+                continue
+            if prompt.strip() in ("/quit", "/exit"):
+                break
+            # support special /tool command inside REPL
+            if prompt.startswith("/tool "):
+                parts = prompt.split(maxsplit=1)
+                if len(parts) == 2 and parts[1].strip():
+                    tool_name = parts[1].strip()
+                    if args.local_tools and local_tools is not None:
+                        invoke_local_tool(local_tools, tool_name, "")
                     else:
-                        print("Usage: /tool <tool_name>")
-                        continue
-
-                # if auto-tools enabled, orchestrate
-                if args.auto_tools:
-                    orchestrate_with_tools(args.url, args.mcp_url if hasattr(args, 'mcp_url') else None, local_tools, prompt, args.model, args.timeout, verify)
+                        if not args.mcp_url:
+                            print("--mcp-url is required to invoke remote tools", file=sys.stderr)
+                        else:
+                            call_tool(args.mcp_url, tool_name, "", args.model, args.stream, args.timeout, verify, None)
+                    continue
+                else:
+                    print("Usage: /tool <tool_name>")
                     continue
 
-                payload = build_payload(args.model, prompt, args.stream)
-                call_generate(generate_url, payload, args.stream, args.timeout, verify)
-        except KeyboardInterrupt:
-            print("\nBye")
-        return 0
+            # if auto-tools enabled, orchestrate
+            if args.auto_tools:
+                orchestrate_with_tools(args.url, args.mcp_url if hasattr(args, 'mcp_url') else None, local_tools, prompt, args.model, args.timeout, verify)
+                continue
+
+            payload = build_payload(args.model, prompt, args.stream)
+            call_generate(generate_url, payload, args.stream, args.timeout, verify)
+    except KeyboardInterrupt:
+        print("\nBye")
+    return 0
 
     # single-shot
     # if --tool provided, run tool invocation
