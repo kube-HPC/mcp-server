@@ -48,16 +48,11 @@ def build_payload(model: str, prompt: str, stream: bool) -> dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="mcp-cli chat client for /api/generate")
+    p = argparse.ArgumentParser(description="mcp-cli interactive chat client for /api/generate")
     p.add_argument("--url", default=DEFAULT_URL, help="Base URL of MCP server (default example host)")
-    p.add_argument("--mcp-url", help="Base URL of the MCP server (for invoking tools). This is different from the LLM /api/generate URL passed via --url")
     p.add_argument("--model", default="gpt-oss:20b", help="Model name to request")
-    p.add_argument("--prompt", help="Single-shot prompt (omit to use --chat)")
-    p.add_argument("--tool", help="Invoke a server-side MCP tool by name (single-shot)")
-    p.add_argument("--auto-tools", action="store_true", help="Ask the LLM whether a tool should be used and orchestrate the call")
-    p.add_argument("--local-tools", action="store_true", help="Call tools directly from a local server.py instead of via MCP HTTP")
+    p.add_argument("--auto-tools", action="store_true", help="Ask the LLM whether to use a tool and orchestrate the call")
     p.add_argument("--server-args", nargs="*", default=[], help="Extra arguments to pass to the launched server.py")
-    p.add_argument("--chat", action="store_true", help="Interactive chat REPL")
     p.add_argument("--stream", action="store_true", help="Ask server to stream responses if supported")
     p.add_argument("--timeout", type=float, default=60.0, help="Request timeout seconds")
     p.add_argument("--no-verify", action="store_true", help="Do not verify TLS certificates")
@@ -457,19 +452,18 @@ def main() -> int:
     except Exception:
         pass
 
-    # when launching server, prefer local tools
-    args.local_tools = True
+    # always use local tools (server.py is launched)
+    # args.local_tools concept removed; we always attempt to load local tools
 
     # Always start interactive chat REPL
     print("Starting interactive chat against:", generate_url)
     print("Type /quit or Ctrl-C to exit.\n")
     local_tools = None
-    if args.local_tools:
-        try:
-            local_tools = load_local_tools(server_path)
-        except Exception as e:
-            print(f"Failed to load local tools: {e}", file=sys.stderr)
-            local_tools = None
+    try:
+        local_tools = load_local_tools(server_path)
+    except Exception as e:
+        print(f"Failed to load local tools: {e}", file=sys.stderr)
+        local_tools = None
     try:
         while True:
             prompt = input("You: ")
