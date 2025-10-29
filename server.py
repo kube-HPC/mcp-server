@@ -38,7 +38,7 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
             return None
 
 
-async def createPipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
+async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
     """Create a pipeline in HKube using the provided JSON object."""
     async with httpx.AsyncClient() as client:
         try:
@@ -75,7 +75,7 @@ async def create_algorithm(pipeline_json: Any) -> str:
             pipeline_json = json.loads(pipeline_json)
         except Exception:
             return "Invalid JSON string provided."
-    data = await createPipeline(pipeline_json)
+    data = await create_pipeline(pipeline_json)
     if not data:
         return "Failed to create pipeline."
     return str(data)
