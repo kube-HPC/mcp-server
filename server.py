@@ -2,7 +2,7 @@ from typing import Any
 from config import get_config  # type: ignore
 import httpx
 from mcp.server.fastmcp import FastMCP
-
+import json
 
 # Initialize FastMCP server
 mcp = FastMCP("hkube")
@@ -38,6 +38,16 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
             return None
 
 
+async def createPipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
+    """Create a pipeline in HKube using the provided JSON object."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(API_ENDPOINTS["pipelines"], timeout=30.0, json=pipeline_json)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            return None
+
 @mcp.tool()
 async def list_algorithms() -> str:
     """Fetch and return the algorithms from HKube as a JSON string."""
@@ -56,6 +66,19 @@ async def list_pipelines() -> str:
 def quick_hello() -> str:
     """Say hello."""
     return "Hello world!kgjfdjhsfdkgsdfgkdf"
+
+@mcp.tool()
+async def create_algorithm(pipeline_json: Any) -> str:
+    """Create a pipeline in HKube and return the response as a JSON string. Accepts a JSON object or a JSON string."""
+    if isinstance(pipeline_json, str):
+        try:
+            pipeline_json = json.loads(pipeline_json)
+        except Exception:
+            return "Invalid JSON string provided."
+    data = await createPipeline(pipeline_json)
+    if not data:
+        return "Failed to create pipeline."
+    return str(data)
 
 
 if __name__ == "__main__":
