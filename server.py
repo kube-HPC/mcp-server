@@ -7,37 +7,31 @@ from mcp.server.fastmcp import FastMCP
 # Initialize FastMCP server
 mcp = FastMCP("hkube")
 
-# get the base URL from config.yaml (config.get_config returns a dict)
+# Load configuration
 _cfg = get_config() or {}
 if not isinstance(_cfg, dict):
-    # defensive: if config loader returned something unexpected
     raise SystemExit("config.get_config() did not return a mapping")
 
-HKUBE_API_URL = _cfg.get("hkube_api_url")
-if not HKUBE_API_URL:
+base_url = _cfg.get("hkube_api_url")
+if not base_url:
     raise SystemExit("hkube_api_url must be set in config.yaml")
 
-# URL of the target service
-HKUBE_API_URL_ALGORITHM = HKUBE_API_URL.rstrip("/") + "/hkube/api-server/api/v1/store/algorithms"
-HKUBE_API_URL_PIPELINE = HKUBE_API_URL.rstrip("/") + "/hkube/api-server/api/v1/store/pipelines"
+# Define endpoints
+API_ENDPOINTS = {
+    "algorithms": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/store/algorithms",
+    "pipelines": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/store/pipelines",
+}
 
 
-async def fetch_pipelines() -> dict[str, Any] | None:
-    """Fetch the list of pipelines from the HKube API."""
+async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
+    """Fetch data from the HKube API by endpoint key."""
+    url = API_ENDPOINTS.get(endpoint_key)
+    if not url:
+        return None
+
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(HKUBE_API_URL_PIPELINE, timeout=30.0)
-            response.raise_for_status()
-            return response.json()
-        except Exception:
-            return None
-
-
-async def fetch_algorithms() -> dict[str, Any] | None:
-    """Fetch the list of algorithms from the HKube API."""
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(HKUBE_API_URL_ALGORITHM, timeout=30.0)
+            response = await client.get(url, timeout=30.0)
             response.raise_for_status()
             return response.json()
         except Exception:
@@ -47,19 +41,15 @@ async def fetch_algorithms() -> dict[str, Any] | None:
 @mcp.tool()
 async def list_algorithms() -> str:
     """Fetch and return the algorithms from HKube as a JSON string."""
-    data = await fetch_algorithms()
-    if not data:
-        return "Unable to fetch algorithms."
-    return str(data)
+    data = await fetch_data("algorithms")
+    return str(data) if data else "Unable to fetch algorithms."
 
 
 @mcp.tool()
 async def list_pipelines() -> str:
     """Fetch and return the pipelines from HKube as a JSON string."""
-    data = await fetch_pipelines()
-    if not data:
-        return "Unable to fetch pipelines."
-    return str(data)
+    data = await fetch_data("pipelines")
+    return str(data) if data else "Unable to fetch pipelines."
 
 
 @mcp.tool()
@@ -70,4 +60,4 @@ def quick_hello() -> str:
 
 if __name__ == "__main__":
     print("Starting MCP server...")
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")

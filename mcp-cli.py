@@ -41,7 +41,7 @@ if sys.version_info < (3, 10) or sys.version_info >= (3, 11):
     raise SystemExit(1)
 
 
-DEFAULT_URL = "http://D-p-elihu-l-rf:11434"
+DEFAULT_URL = None
 
 
 def build_payload(model: str, prompt: str, stream: bool) -> dict[str, Any]:
@@ -50,10 +50,7 @@ def build_payload(model: str, prompt: str, stream: bool) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="mcp-cli interactive chat client for /api/generate")
-    p.add_argument("--url", default=DEFAULT_URL, help="Base URL of MCP server (default example host)")
-    p.add_argument("--model", default="gpt-oss:20b", help="Model name to request")
     p.add_argument("--auto-tools", action="store_true", help="Ask the LLM whether to use a tool and orchestrate the call")
-    p.add_argument("--server-args", nargs="*", default=[], help="Extra arguments to pass to the launched server.py")
     p.add_argument("--stream", action="store_true", help="Ask server to stream responses if supported")
     p.add_argument("--timeout", type=float, default=60.0, help="Request timeout seconds")
     p.add_argument("--no-verify", action="store_true", help="Do not verify TLS certificates")
@@ -385,8 +382,17 @@ def main() -> int:
         # ensure httpx/httpcore do not emit debug HTTP Request/Response lines
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
-    base = args.url.rstrip("/")
+    # Model/LLM URL and model name must be provided in config.yaml
+    mll_url = _cfg.get("mll_url") or _cfg.get("url") or _cfg.get("llm_url")
+    if not mll_url:
+        print("Missing 'mll_url' in config.yaml (required).", file=sys.stderr)
+        return 2
+    base = mll_url.rstrip("/")
     generate_url = base + "/api/generate"
+    model_name = _cfg.get("model")
+    if not model_name:
+        print("Missing 'model' in config.yaml (required).", file=sys.stderr)
+        return 2
     verify = not args.no_verify
 
     # if requested, launch server.py as a subprocess; auto-enable local-tools
@@ -431,7 +437,7 @@ def main() -> int:
                     # process gone
                     pass
 
-        cmd = [sys.executable, server_path] + list(args.server_args)
+        cmd = [sys.executable, server_path]
         server_proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         print(f"Launched server process (pid={server_proc.pid})")
         # stream server stdout/stderr to our console in background threads
@@ -530,10 +536,10 @@ def main() -> int:
 
             # if auto-tools enabled, orchestrate
             if args.auto_tools:
-                orchestrate_with_tools(args.url, args.mcp_url if hasattr(args, 'mcp_url') else None, local_tools, prompt, args.model, args.timeout, verify)
+                orchestrate_with_tools(mll_url, None, local_tools, prompt, model_name, args.timeout, verify)
                 continue
 
-            payload = build_payload(args.model, prompt, args.stream)
+            payload = build_payload(model_name, prompt, args.stream)
             call_generate(generate_url, payload, args.stream, args.timeout, verify)
     except KeyboardInterrupt:
         print("\nBye")
@@ -541,37 +547,8 @@ def main() -> int:
 
     # single-shot
     # if --tool provided, run tool invocation
-    if args.tool:
-        if args.local_tools:
-            try:
-                tools = load_local_tools(server_path)
-            except Exception as e:
-                print(f"Failed to load local tools: {e}", file=sys.stderr)
-                return 2
-            return invoke_local_tool(tools, args.tool, args.prompt or "")
-        if not args.mcp_url:
-            print("--mcp-url is required to invoke remote tools", file=sys.stderr)
-            return 2
-        return call_tool(args.mcp_url, args.tool, args.prompt or "", args.model, args.stream, args.timeout, verify, None)
-
-    if not args.prompt:
-        print("Either --prompt or --chat is required. See --help", file=sys.stderr)
-        return 2
-
-    # single-shot flow
-    if args.auto_tools:
-        # orchestrate: ask model whether to use tool
-        local_tools = None
-        if args.local_tools:
-            try:
-                local_tools = load_local_tools(server_path)
-            except Exception as e:
-                print(f"Failed to load local tools: {e}", file=sys.stderr)
-                local_tools = None
-        return orchestrate_with_tools(args.url, args.mcp_url if hasattr(args, 'mcp_url') else None, local_tools, args.prompt, args.model, args.timeout, verify)
-
-    payload = build_payload(args.model, args.prompt, args.stream)
-    return call_generate(generate_url, payload, args.stream, args.timeout, verify)
+    # interactive-only CLI - no single-shot paths
+    return 0
 
 
 if __name__ == "__main__":
