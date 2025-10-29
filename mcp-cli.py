@@ -140,8 +140,10 @@ def ask_model_for_tool(mll_url: str, prompt: str, model: str, timeout: float, ve
                     return None, response_text
             return None, response_text
     except httpx.HTTPError as e:
-        print(f"Model call failed: {e}", file=sys.stderr)
-        return None
+        err = f"Model call failed: {e}"
+        print(err, file=sys.stderr)
+        # return a consistent tuple (decision, raw_text)
+        return None, err
 
 
 def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[str, Any] | None, user_prompt: str, model: str, timeout: float, verify: bool) -> int:
@@ -164,7 +166,13 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
             "default_tool: fallback tool when unsure"
         )
 
-    decision, raw = ask_model_for_tool(mll_url, user_prompt, model, timeout, verify, tool_catalog)
+    got = ask_model_for_tool(mll_url, user_prompt, model, timeout, verify, tool_catalog)
+    # ensure we always have a (decision, raw) tuple
+    if isinstance(got, tuple) and len(got) == 2:
+        decision, raw = got
+    else:
+        # defensive fallback
+        decision, raw = None, None
     # always show what the model returned for debugging
     if raw:
         print("Model decision response (raw):\n" + raw)
