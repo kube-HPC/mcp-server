@@ -33,6 +33,7 @@ from config import get_config  # type: ignore
 
 # runtime debug toggle (set in main from config.debug)
 DEBUG = False
+ASSISTANT_NAME = "HKube Chat"
 
 # Require Python 3.10
 if sys.version_info < (3, 10) or sys.version_info >= (3, 11):
@@ -66,6 +67,31 @@ def print_json(obj: Any) -> None:
         print(obj)
 
 
+def display(msg: Any) -> None:
+    """Print a message with a blank line before and after.
+    If msg is not a string, pretty-print JSON via print_json.
+    """
+    print()
+    if isinstance(msg, str):
+        print(msg)
+    else:
+        print_json(msg)
+    print()
+
+
+def assistant_display(obj: Any) -> None:
+    """Print assistant-labeled output with blank lines.
+    If obj is a string, prefix with assistant name. If obj is a dict/object, print the name then pretty JSON.
+    """
+    print()
+    if isinstance(obj, str):
+        print(f"{ASSISTANT_NAME}: {obj}")
+    else:
+        print(f"{ASSISTANT_NAME}:")
+        print_json(obj)
+    print()
+
+
 def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: float, verify: bool) -> int:
     headers = {"Content-Type": "application/json"}
     try:
@@ -80,12 +106,12 @@ def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: floa
                             obj = json.loads(chunk)
                             # In non-debug mode only print the 'response' field if present
                             if DEBUG:
-                                print_json(obj)
+                                assistant_display(obj)
                             else:
                                 if isinstance(obj, dict) and "response" in obj:
-                                    print(obj.get("response"))
+                                    assistant_display(obj.get("response"))
                                 else:
-                                    print_json(obj)
+                                    assistant_display(obj)
                         except Exception:
                             print(chunk.decode("utf-8", errors="replace"))
             return 0
@@ -96,14 +122,14 @@ def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: floa
                 data = resp.json()
                 # Only show full JSON when debugging; otherwise show only the 'response' key if present
                 if DEBUG:
-                    print_json(data)
+                    assistant_display(data)
                 else:
                     if isinstance(data, dict) and "response" in data:
-                        print(data.get("response"))
+                        assistant_display(data.get("response"))
                     else:
                         # fallback to entire text if response key missing
                         try:
-                            print_json(data)
+                            assistant_display(data)
                         except Exception:
                             print(resp.text)
             except Exception:
@@ -204,9 +230,9 @@ def orchestrate_with_tools(mll_url: str, mcp_url: str | None, local_tools: dict[
         decision, raw = None, None
     # show raw model decision only in debug mode
     if DEBUG and raw:
-        print("Model decision response (raw):\n" + raw)
+        display("Model decision response (raw):\n" + raw)
     if not decision:
-        print("Model did not return a valid tool decision JSON.")
+        display("Model did not return a valid tool decision JSON.")
         return 2
     if not decision.get("use_tool"):
         # Model decided no tool; ask model to answer directly
@@ -348,6 +374,9 @@ def main() -> int:
         print("Failed to load configuration (config.yaml) via config.get_config(); exiting.", file=sys.stderr)
         return 2
     server_path = _cfg.get("server_path", "./server.py")
+    # assistant name from config
+    global ASSISTANT_NAME
+    ASSISTANT_NAME = str(_cfg.get("assistant_name", ASSISTANT_NAME))
     # set debug flag from config
     global DEBUG
     DEBUG = bool(_cfg.get("debug", False))
@@ -466,6 +495,8 @@ def main() -> int:
         local_tools = None
     try:
         while True:
+            # blank line before prompt
+            print()
             prompt = input("You: ")
             if not prompt:
                 continue
@@ -476,13 +507,11 @@ def main() -> int:
                 parts = prompt.split(maxsplit=1)
                 if len(parts) == 2 and parts[1].strip():
                     tool_name = parts[1].strip()
-                    if args.local_tools and local_tools is not None:
+                    if local_tools is not None:
+                        # call local tool and display result
                         invoke_local_tool(local_tools, tool_name, "")
                     else:
-                        if not args.mcp_url:
-                            print("--mcp-url is required to invoke remote tools", file=sys.stderr)
-                        else:
-                            call_tool(args.mcp_url, tool_name, "", args.model, args.stream, args.timeout, verify, None)
+                        display(f"Local tool '{tool_name}' not available")
                     continue
                 else:
                     print("Usage: /tool <tool_name>")
