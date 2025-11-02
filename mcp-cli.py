@@ -27,6 +27,10 @@ import threading
 import subprocess
 import atexit
 import signal
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Loads variables from .env into the environment
 
 # config loader
 from config import get_config  # type: ignore
@@ -113,7 +117,13 @@ def call_generate(url: str, payload: dict[str, Any], stream: bool, timeout: floa
                             print(chunk.decode("utf-8", errors="replace"))
             return 0
         else:
+            payload["max_tokens"] = 1000000000
             resp = httpx.post(url, headers=headers, json=payload, timeout=timeout, verify=verify)
+            # Diagnostic logging:
+            print(">>> SENT payload size:", len(json.dumps(payload).encode('utf-8')), "bytes", file=sys.stderr)
+            print(">>> RECEIVED status:", resp.status_code, "content-length header:", resp.headers.get('content-length'), file=sys.stderr)
+            print(">>> RECEIVED bytes:", len(resp.content), "encoding:", resp.encoding, file=sys.stderr)
+            print(">>> FIRST 2000 chars of response:", resp.text[:2000], file=sys.stderr)
             resp.raise_for_status()
             try:
                 data = resp.json()
@@ -383,7 +393,7 @@ def main() -> int:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
     # Model/LLM URL and model name must be provided in config.yaml
-    mll_url = _cfg.get("mll_url") or _cfg.get("url") or _cfg.get("llm_url")
+    mll_url = os.getenv("mll_url")
     if not mll_url:
         print("Missing 'mll_url' in config.yaml (required).", file=sys.stderr)
         return 2
