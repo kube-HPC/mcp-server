@@ -24,6 +24,7 @@ API_ENDPOINTS = {
     "exec": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/exec",
 }
 
+###################################################### Helper Functions ######################################################
 
 async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
     """Fetch data from the HKube API by endpoint key."""
@@ -39,7 +40,6 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
         except Exception:
             return None
 
-
 async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
     """Create a pipeline in HKube using the provided JSON object."""
     async with httpx.AsyncClient() as client:
@@ -49,6 +49,9 @@ async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | Non
             return response.json()
         except Exception:
             return None
+
+
+###################################################### MCP Tools ######################################################
 
 @mcp.tool()
 async def list_algorithms() -> str:
@@ -96,7 +99,8 @@ async def search_jobs(
         "pipeline.tags": True,
         "pipeline.types": True,
         "status.data.details": True,
-        "result.timeTook": True
+        "result.timeTook": True,
+        "graph": True
     }
     if fields:
         default_fields.update(fields)
@@ -168,6 +172,19 @@ async def search_jobs_tool(
 #     if not data:
 #         return "Failed to create pipeline."
 #     return str(data)
+
+
+
+#
+# @mcp.resource("hkube.instructions")
+# def hkube_instructions() -> str:
+#     """Provide guidance for interacting with HKube tools."""
+#     return """
+# ### Accessing logs of a specific node in a job:
+# You can use the taskId of any job which can be found in job.graph.nodes array, and each node has a taskId field.
+# Using this task id, you can make a query in the elastic db to get more information about the execution of that specific task.
+# For making a query, you have to use meta.internal.taskId field in the elastic search query, e.g.: "meta.internal.taskId is '<taskId>'".
+# """
 
 
 if __name__ == "__main__":
