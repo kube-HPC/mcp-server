@@ -21,7 +21,8 @@ class ConfigLoader:
         """
         Load the configuration from the YAML file into the class variable _config.
         """
-        config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+        config_path = os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+        config_path = os.path.abspath(config_path)
         with open(config_path, "r") as f:
             cls._config = yaml.safe_load(f)
 

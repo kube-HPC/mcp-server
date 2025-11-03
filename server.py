@@ -1,5 +1,5 @@
 from typing import Any
-from config import get_config  # type: ignore
+from core.config import get_config  # type: ignore
 import httpx
 from mcp.server.fastmcp import FastMCP
 import json
