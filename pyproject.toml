@@ -1,0 +1,15 @@
+[project]
+name = "hkube-mcp"
+version = "0.1.0"
+description = "MCP server for HKube API with Swagger auto-tools"
+requires-python = ">=3.9"
+
+dependencies = [
+    "mcp",       # Model Context Protocol Python SDK
+    "httpx",     # Async HTTP client
+    "PyYAML"     # For config parsing
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
