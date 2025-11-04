@@ -23,37 +23,11 @@ base_url = _cfg.get("hkube_api_url")
 if not base_url:
     raise SystemExit("hkube_api_url must be set in config.yaml")
 
-# Load api_endpoints from config.yaml if provided; otherwise construct from hkube_api_url
-api_cfg = _cfg.get("api_endpoints") or {}
-
-def build_endpoint(value: str | None, default_path: str) -> str:
-    """Construct a full endpoint URL.
-
-    Rules:
-    - If `value` is falsy: use base_url + default_path
-    - If `value` looks like a full URL (starts with http:// or https://): return as-is
-    - If `value` starts with '/': append it directly to base_url (no extra slash)
-    - Otherwise treat value as relative path and join with a single '/'
-    """
-    if not value:
-        path = default_path
-    else:
-        path = value.strip()
-
-    if path.startswith("http://") or path.startswith("https://"):
-        return path
-
-    # ensure base_url has no trailing slash
-    base = base_url.rstrip('/')
-    if path.startswith('/'):
-        return f"{base}{path}"
-    else:
-        return f"{base}/{path}"
+base_url = _cfg.get("hkube_api_url", "").rstrip("/")
+api_paths = _cfg.get("api_paths", {}) or {}
 
 API_ENDPOINTS = {
-    "algorithms": build_endpoint(api_cfg.get("algorithms"), "/hkube/api-server/api/v1/store/algorithms"),
-    "pipelines": build_endpoint(api_cfg.get("pipelines"), "/hkube/api-server/api/v1/store/pipelines"),
-    "exec": build_endpoint(api_cfg.get("exec"), "/hkube/api-server/api/v1/exec"),
+    key: f"{base_url}{path}" for key, path in api_paths.items() if path
 }
 
 ###################################################### Helper Functions ######################################################
@@ -63,6 +37,7 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
     if not url:
         return None
     async with httpx.AsyncClient() as client:
+        # noinspection PyBroadException
         try:
             response = await client.get(url, timeout=30.0)
             response.raise_for_status()
@@ -72,6 +47,7 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
 
 async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
     async with httpx.AsyncClient() as client:
+        # noinspection PyBroadException
         try:
             response = await client.post(API_ENDPOINTS["pipelines"], timeout=30.0, json=pipeline_json)
             response.raise_for_status()
@@ -173,20 +149,6 @@ async def search_jobs_tool(
 
 ###################################################### MCP Resources ######################################################
 
-@mcp.resource("resource://greeting")
-def get_greeting() -> str:
-    """Provides a simple greeting message."""
-    return "Hello from FastMCP Resources!"
-
-@mcp.resource("data://config")
-def get_config() -> dict:
-    """Provides application configuration as JSON."""
-    return {
-        "theme": "dark",
-        "version": "1.2.0",
-        "features": ["tools", "resources"],
-    }
-
 # Automatically expose all files in resources/ folder
 resources_dir = Path("./resources").resolve()
 
@@ -258,6 +220,7 @@ async def read_resource(query: str) -> str:
 
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
+    # noinspection PyBroadException
     try:
         mcp.run(transport="stdio")
     except Exception:

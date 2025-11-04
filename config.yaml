@@ -6,9 +6,9 @@ model: gpt-oss:20b
 # Assistant display name
 assistant_name: HKube Chat
 
-# Optional explicit API endpoints; if omitted, server will construct them from hkube_api_url
-api_endpoints:
-  algorithms: ""
-  pipelines: ""
-  exec: ""
+# API paths (hkube_api_url + api_paths.<path>)
+api_paths:
+  algorithms: "/hkube/api-server/api/v1/store/algorithms"
+  pipelines: "/hkube/api-server/api/v1/store/pipelines"
+  exec: "/hkube/api-server/api/v1/exec"
 
