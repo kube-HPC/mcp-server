@@ -1,11 +1,13 @@
 from typing import Any
 import httpx
-from utils.get_endpoint import get_endpoint  # type: ignore
+import logging
+from utils import get_endpoint , robust_parse_text # type: ignore
 
-async def list_algorithms(resource_map: dict[str, str] | None = None) -> str:
+
+async def list_algorithms() -> str:
     """Fetch the list of algorithms from the configured API endpoint.
 
-    Returns the JSON response as a string or an error message.
+    Returns the JSON response as a string or an error message. Falls back to raw text when JSON decoding fails.
     """
     url = get_endpoint("algorithms")
     if not url:
@@ -14,12 +16,20 @@ async def list_algorithms(resource_map: dict[str, str] | None = None) -> str:
         try:
             resp = await client.get(url, timeout=30.0)
             resp.raise_for_status()
-            return str(resp.json())
+            try:
+                data = resp.json()
+            except Exception as e:
+                text = resp.text
+                data = robust_parse_text(text)
+                logging.getLogger(__name__).warning(
+                    f"Failed to decode JSON from {url}: {e}; returning parsed fallback (raw/ndjson/first-chunk)"
+                )
+            return str(data)
         except Exception as e:
             return f"Unable to fetch algorithms: {e}"
 
 
-def get_tools(resource_map: dict[str, str]) -> dict[str, Any]:
+def get_tools() -> dict[str, Any]:
     return {
         "list_algorithms": {
             "func": list_algorithms,

@@ -6,16 +6,18 @@ import sys
 from importlib import import_module
 import pkgutil
 
-# Initialize FastMCP server
-mcp = FastMCP("hkube")
-
 # Set up logging using core.logging_config
 logger = setup_logging()
 
-# We do NOT use api_endpoints anymore; tools must call utils.get_endpoint(key) themselves.
+# Initialize FastMCP server
+mcp = FastMCP("hkube")
+
+logger.info("MCP server initialized.")
 
 ###################################################### MCP Resources ######################################################
 
+logger.info("\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+logger.info("Loading MCP resources...")
 # Automatically expose all files in resources/ folder
 resources_dir = Path("./resources").resolve()
 
@@ -36,12 +38,16 @@ if resources_dir.is_dir():
             mcp.add_resource(resource)
             # store in lookup map
             resource_map[file_path.stem.lower()] = content
+    logger.info(f"Total resources loaded: {len(resource_map)}, resource names: {list(resource_map.keys())}")
 
 # Resource tools are provided by the `tools/` package and are loaded dynamically below.
 
 ###################################################### MCP Tools ######################################################
 
 # Dynamically import all modules in the tools package and register their tools
+logger.info("\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+logger.info("Loading MCP tools...")
+
 TOOLS_PACKAGE = "tools"
 tools_path = Path(__file__).resolve().parent / TOOLS_PACKAGE
 loaded_tool_count = 0
@@ -55,8 +61,16 @@ if tools_path.is_dir():
             mod = import_module(module_name)
             logger.info(f"Imported tools module: {module_name}")
             if hasattr(mod, "get_tools"):
-                # Strict: call new signature only: get_tools(resource_map)
-                mapping = mod.get_tools(resource_map)
+                try:
+                    import inspect
+                    sig = inspect.signature(mod.get_tools)
+                    if len(sig.parameters) > 0:
+                        mapping = mod.get_tools(resource_map)
+                    else:
+                        mapping = mod.get_tools()
+                except Exception:
+                    # Fallback: call without args
+                    mapping = mod.get_tools()
                 # mapping: tool_name -> { 'func': callable, 'title': str, 'description': str }
                 for tool_name, meta in mapping.items():
                     func = None
@@ -81,12 +95,9 @@ if tools_path.is_dir():
                         import json
 
                         # Build a signature for the wrapper that mirrors the original function's
-                        # signature but without the first `resource_map` parameter.
                         try:
                             orig_sig = inspect.signature(_func)
                             params = list(orig_sig.parameters.values())
-                            if params and params[0].name == "resource_map":
-                                params = params[1:]
                             wrapper_sig = inspect.Signature(parameters=params)
                         except Exception:
                             wrapper_sig = None
@@ -112,12 +123,11 @@ if tools_path.is_dir():
                             else:
                                 # Called directly; use provided positional/keyword args
                                 args_in = call_args if call_args else None
-                                # remove first positional if it was resource_map injected accidentally
                                 kwargs_in = call_kwargs if call_kwargs else None
 
-                            # If nothing provided at all, call function with only resource_map
+                            # If nothing provided at all, call function with no args
                             if args_in is None and kwargs_in is None:
-                                return await _func(resource_map)
+                                return await _func()
 
                             # Normalize args
                             if isinstance(args_in, (list, tuple)):
@@ -135,8 +145,8 @@ if tools_path.is_dir():
                                 if not isinstance(kwargs_un, dict):
                                     kwargs_un = {}
 
-                            # Call original tool with injected resource_map as first arg
-                            return await _func(resource_map, *args_un, **kwargs_un)
+                            # Call original tool with the normalized args/kwargs (do NOT inject resource_map)
+                            return await _func(*args_un, **kwargs_un)
 
                         # Attach the computed signature so introspection (and LLMs) see the real params
                         if wrapper_sig is not None:
@@ -157,7 +167,7 @@ if tools_path.is_dir():
                         logger.exception(f"Failed to register tool {tool_name} from {module_name}")
         except Exception:
             logger.exception(f"Failed to load tools from module {module_name}")
-    logger.info(f"Total tools registered: {loaded_tool_count}")
+    logger.info(f"Total tools registered: {loaded_tool_count} , tool names: {registered_tool_names}")
 
 ###################################################### Startup ######################################################
 
@@ -165,6 +175,7 @@ if __name__ == "__main__":
     logger.info("Starting MCP server...")
     try:
         mcp.run(transport="stdio")
+        logger.info("MCP server shut down.")
     except Exception:
         # Log the full exception to file and stderr so crashes are captured
         logger.exception("Unhandled exception running MCP server")
