@@ -128,17 +128,6 @@ if tools_path.is_dir():
             logger.exception(f"Failed to load tools from module {module_name}")
     logger.info(f"Total tools registered: {loaded_tool_count}")
 
-# Expose a small debug tool so the CLI/LLM can confirm which tools were registered
-@mcp.tool(name="debug_list_registered_tools")
-async def _debug_list_registered_tools() -> str:
-    try:
-        if not registered_tool_names:
-            return f"No tools registered. Count={loaded_tool_count}"
-        return f"Registered tools ({loaded_tool_count}):\n" + "\n".join(registered_tool_names)
-    except Exception as e:
-        logger.exception("debug_list_registered_tools failed")
-        return f"Error: {e}"
-
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
     try:
