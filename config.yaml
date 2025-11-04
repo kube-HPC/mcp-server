@@ -5,3 +5,10 @@ debug: false
 model: gpt-oss:20b
 # Assistant display name
 assistant_name: HKube Chat
+
+# Optional explicit API endpoints; if omitted, server will construct them from hkube_api_url
+api_endpoints:
+  algorithms: ""
+  pipelines: ""
+  exec: ""
+

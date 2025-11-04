@@ -1,12 +1,18 @@
 from typing import Any
 from core.config import get_config  # type: ignore
+from core.logging_config import setup_logging  # new
 import httpx
 from mcp.server.fastmcp import FastMCP
-from datetime import datetime, timedelta
-
+from mcp.server.fastmcp.resources import TextResource
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import sys
 
 # Initialize FastMCP server
 mcp = FastMCP("hkube")
+
+# Set up logging using core.logging_config
+logger = setup_logging()
 
 # Load configuration
 _cfg = get_config() or {}
@@ -17,21 +23,45 @@ base_url = _cfg.get("hkube_api_url")
 if not base_url:
     raise SystemExit("hkube_api_url must be set in config.yaml")
 
-# Define endpoints
+# Load api_endpoints from config.yaml if provided; otherwise construct from hkube_api_url
+api_cfg = _cfg.get("api_endpoints") or {}
+
+def build_endpoint(value: str | None, default_path: str) -> str:
+    """Construct a full endpoint URL.
+
+    Rules:
+    - If `value` is falsy: use base_url + default_path
+    - If `value` looks like a full URL (starts with http:// or https://): return as-is
+    - If `value` starts with '/': append it directly to base_url (no extra slash)
+    - Otherwise treat value as relative path and join with a single '/'
+    """
+    if not value:
+        path = default_path
+    else:
+        path = value.strip()
+
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+
+    # ensure base_url has no trailing slash
+    base = base_url.rstrip('/')
+    if path.startswith('/'):
+        return f"{base}{path}"
+    else:
+        return f"{base}/{path}"
+
 API_ENDPOINTS = {
-    "algorithms": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/store/algorithms",
-    "pipelines": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/store/pipelines",
-    "exec": f"{base_url.rstrip('/')}/hkube/api-server/api/v1/exec",
+    "algorithms": build_endpoint(api_cfg.get("algorithms"), "/hkube/api-server/api/v1/store/algorithms"),
+    "pipelines": build_endpoint(api_cfg.get("pipelines"), "/hkube/api-server/api/v1/store/pipelines"),
+    "exec": build_endpoint(api_cfg.get("exec"), "/hkube/api-server/api/v1/exec"),
 }
 
 ###################################################### Helper Functions ######################################################
 
 async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
-    """Fetch data from the HKube API by endpoint key."""
     url = API_ENDPOINTS.get(endpoint_key)
     if not url:
         return None
-
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(url, timeout=30.0)
@@ -41,7 +71,6 @@ async def fetch_data(endpoint_key: str) -> dict[str, Any] | None:
             return None
 
 async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | None:
-    """Create a pipeline in HKube using the provided JSON object."""
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(API_ENDPOINTS["pipelines"], timeout=30.0, json=pipeline_json)
@@ -49,23 +78,6 @@ async def create_pipeline(pipeline_json: dict[str, Any]) -> dict[str, Any] | Non
             return response.json()
         except Exception:
             return None
-
-
-###################################################### MCP Tools ######################################################
-
-@mcp.tool()
-async def list_algorithms() -> str:
-    """Fetch and return the algorithms from HKube as a JSON string."""
-    data = await fetch_data("algorithms")
-    return str(data) if data else "Unable to fetch algorithms."
-
-
-@mcp.tool()
-async def list_pipelines() -> str:
-    """Fetch and return the pipelines from HKube as a JSON string."""
-    data = await fetch_data("pipelines")
-    return str(data) if data else "Unable to fetch pipelines."
-
 
 async def search_jobs(
         experiment_name: str | None = None,
@@ -80,17 +92,13 @@ async def search_jobs(
         page_num: int = 1,
         limit: int = 10,
 ) -> str:
-    """Search for jobs in HKube with optional filters and return JSON string."""
-
-    # Default: last 24 hours
     if not dates_range:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         dates_range = {
             "from": (now - timedelta(days=1)).isoformat(),
             "to": now.isoformat()
         }
 
-    # Default fields
     default_fields = {
         "jobId": True,
         "userPipeline.name": True,
@@ -121,7 +129,6 @@ async def search_jobs(
         "fields": default_fields
     }
 
-    # Remove keys with None values
     payload["query"] = {k: v for k, v in payload["query"].items() if v is not None}
 
     async with httpx.AsyncClient() as client:
@@ -134,8 +141,19 @@ async def search_jobs(
         except Exception as e:
             return f"Failed to search jobs: {e}"
 
+###################################################### MCP Tools ######################################################
 
-# Register as MCP tool
+
+@mcp.tool()
+async def list_algorithms() -> str:
+    data = await fetch_data("algorithms")
+    return str(data) if data else "Unable to fetch algorithms."
+
+@mcp.tool()
+async def list_pipelines() -> str:
+    data = await fetch_data("pipelines")
+    return str(data) if data else "Unable to fetch pipelines."
+
 @mcp.tool()
 async def search_jobs_tool(
         experiment_name: str | None = None,
@@ -144,50 +162,106 @@ async def search_jobs_tool(
         algorithm_name: str | None = None,
         pipeline_status: str | None = None,
         tags: str | None = None,
-        datesRange: dict[str, str] | None = None,
+        dates_range: dict[str, str] | None = None,
         fields: dict[str, bool] | None = None,
         sort: str = "desc",
         page_num: int = 1,
         limit: int = 10
 ) -> str:
-    """Tool for LLM: search HKube jobs with filters and defaults."""
     return await search_jobs(experiment_name, pipeline_name, pipeline_type, algorithm_name, pipeline_status, tags,
-                             datesRange, fields, sort, page_num, limit)
+                             dates_range, fields, sort, page_num, limit)
 
+###################################################### MCP Resources ######################################################
 
-# @mcp.tool()
-# def quick_hello() -> str:
-#     """Say hello."""
-#     return "Hello world!kgjfdjhsfdkgsdfgkdf"
+@mcp.resource("resource://greeting")
+def get_greeting() -> str:
+    """Provides a simple greeting message."""
+    return "Hello from FastMCP Resources!"
 
-# @mcp.tool()
-# async def create_algorithm(pipeline_json: Any) -> str:
-#     """Create a pipeline in HKube and return the response as a JSON string. Accepts a JSON object or a JSON string."""
-#     if isinstance(pipeline_json, str):
-#         try:
-#             pipeline_json = json.loads(pipeline_json)
-#         except Exception:
-#             return "Invalid JSON string provided."
-#     data = await create_pipeline(pipeline_json)
-#     if not data:
-#         return "Failed to create pipeline."
-#     return str(data)
+@mcp.resource("data://config")
+def get_config() -> dict:
+    """Provides application configuration as JSON."""
+    return {
+        "theme": "dark",
+        "version": "1.2.0",
+        "features": ["tools", "resources"],
+    }
 
+# Automatically expose all files in resources/ folder
+resources_dir = Path("./resources").resolve()
 
+# Build an in-memory map of available resources (name -> content)
+resource_map: dict[str, str] = {}
 
-#
-# @mcp.resource("hkube.instructions")
-# def hkube_instructions() -> str:
-#     """Provide guidance for interacting with HKube tools."""
-#     return """
-# ### Accessing logs of a specific node in a job:
-# You can use the taskId of any job which can be found in job.graph.nodes array, and each node has a taskId field.
-# Using this task id, you can make a query in the elastic db to get more information about the execution of that specific task.
-# For making a query, you have to use meta.internal.taskId field in the elastic search query, e.g.: "meta.internal.taskId is '<taskId>'".
-# """
+if resources_dir.is_dir():
+    for file_path in resources_dir.iterdir():
+        if file_path.is_file():
+            content = file_path.read_text(encoding="utf-8")  # read file content
+            resource = TextResource(
+                uri=f"resource://{file_path.stem.replace(' ', '_')}",  # noqa
+                name=file_path.stem,
+                text=content,
+                description=f"Contents of {file_path.name}",
+                mime_type="text/markdown"
+            )
+            mcp.add_resource(resource)
+            # store in lookup map
+            resource_map[file_path.stem.lower()] = content
 
+# Tool to list resources so LLM can discover what's available
+@mcp.tool()
+async def list_resources() -> str:
+    """Return a newline-separated list of available resource names."""
+    try:
+        names = sorted(name for name in resource_map.keys())
+        return "\n".join(names) if names else "No resources available."
+    except Exception as e:
+        logger.exception("list_resources failed")
+        return f"Error listing resources: {e}"
+
+# Tool to read a resource by name (supports partial matching)
+@mcp.tool()
+async def read_resource(query: str) -> str:
+    """Return the content of a resource given a name or partial name.
+
+    Behavior:
+    - Exact case-insensitive match on the filename stem returns the content.
+    - If multiple matches for a partial query, returns a short list of matches.
+    - If one fuzzy match, returns that resource content.
+    - If nothing found, returns a helpful message.
+    """
+    if not query:
+        return "Please provide a resource name to read. Use `list_resources()` to see available resources."
+    q = query.strip().lower()
+
+    # exact
+    if q in resource_map:
+        return resource_map[q]
+
+    # partial matches
+    matches = [name for name in resource_map.keys() if q in name or name in q]
+    if len(matches) == 1:
+        return resource_map[matches[0]]
+    if len(matches) > 1:
+        return "Multiple resources match your query:\n" + "\n".join(matches)
+
+    # try filename contains words
+    matches = [name for name in resource_map.keys() if all(part in name for part in q.split())]
+    if len(matches) == 1:
+        return resource_map[matches[0]]
+    if len(matches) > 1:
+        return "Multiple resources match your query:\n" + "\n".join(matches)
+
+    return f"No resource found matching '{query}'. Use list_resources() to see available resources."
+
+###################################################### Startup ######################################################
 
 if __name__ == "__main__":
-    print("Starting MCP server...")
-    mcp.run(transport="stdio")
-
+    logger.info("Starting MCP server...")
+    try:
+        mcp.run(transport="stdio")
+    except Exception:
+        # Log the full exception to file and stderr so crashes are captured
+        logger.exception("Unhandled exception running MCP server")
+        print("Unhandled exception occurred. See logs/server.log for details.", file=sys.stderr)
+        sys.exit(-1)
