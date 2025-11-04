@@ -1,5 +1,4 @@
-from core.config import get_config  # type: ignore
-from core.logging_config import setup_logging  # new
+from core.logging_config import setup_logging
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import TextResource
 from pathlib import Path
@@ -14,11 +13,6 @@ mcp = FastMCP("hkube")
 logger = setup_logging()
 
 # We do NOT use api_endpoints anymore; tools must call utils.get_endpoint(key) themselves.
-
-###################################################### MCP Tools ######################################################
-
-# Tools are now defined in the `tools/` package and loaded dynamically later in this file.
-# The loader will call each module's `get_tools(resource_map)` and register the returned tools.
 
 ###################################################### MCP Resources ######################################################
 
@@ -45,7 +39,7 @@ if resources_dir.is_dir():
 
 # Resource tools are provided by the `tools/` package and are loaded dynamically below.
 
-###################################################### Startup ######################################################
+###################################################### MCP Tools ######################################################
 
 # Dynamically import all modules in the tools package and register their tools
 TOOLS_PACKAGE = "tools"
@@ -127,6 +121,8 @@ if tools_path.is_dir():
         except Exception:
             logger.exception(f"Failed to load tools from module {module_name}")
     logger.info(f"Total tools registered: {loaded_tool_count}")
+
+###################################################### Startup ######################################################
 
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
