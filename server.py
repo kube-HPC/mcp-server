@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from importlib import import_module
 import pkgutil
+from core.resources import set_resource_map
 
 # Set up logging using core.logging_config
 logger = setup_logging()
@@ -39,7 +40,7 @@ if resources_dir.is_dir():
             # store in lookup map
             resource_map[file_path.stem.lower()] = content
     logger.info(f"Total resources loaded: {len(resource_map)}, resource names: {list(resource_map.keys())}")
-
+set_resource_map(resource_map)
 # Resource tools are provided by the `tools/` package and are loaded dynamically below.
 
 ###################################################### MCP Tools ######################################################

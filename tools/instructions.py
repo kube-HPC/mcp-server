@@ -1,19 +1,21 @@
 from typing import Any
+from core.resources import get_resource_map # type: ignore
 
-async def get_instructions(resource_map: dict[str, str]) -> str:
+async def get_instructions() -> str:
     """Return the assistant instructions resource content (exact file content).
 
     Expects the instructions file to be available in `resource_map` under the
     key `assistant_instructions` (file stem lowercased).
     """
     key = "assistant_instructions"
+    resource_map = get_resource_map()
     content = resource_map.get(key)
     if content:
         return content
     return "No assistant instructions resource found."
 
 
-def get_tools(resource_map: dict[str, str]) -> dict[str, Any]:
+def get_tools() -> dict[str, Any]:
     return {
         "get_instructions": {
             "func": get_instructions,
