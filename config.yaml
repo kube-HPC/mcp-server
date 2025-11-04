@@ -10,5 +10,5 @@ assistant_name: HKube Chat
 api_paths:
   algorithms: "/hkube/api-server/api/v1/store/algorithms"
   pipelines: "/hkube/api-server/api/v1/store/pipelines"
-  exec: "/hkube/api-server/api/v1/exec"
+  exec_search: "/hkube/api-server/api/v1/exec/search"
 

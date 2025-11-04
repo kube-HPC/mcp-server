@@ -76,14 +76,28 @@ if tools_path.is_dir():
 
                     # create a wrapper to call tools with resource_map as the first argument
                     def make_wrapper(_func):
-                        async def _wrapped(args=None, kwargs=None):
-                            # FastMCP calls tools with keyword arguments named 'args' and 'kwargs'
-                            args_from_kw = args
-                            kwargs_from_kw = kwargs
+                        import inspect
+                        import functools
+                        import json
+
+                        # Build a signature for the wrapper that mirrors the original function's
+                        # signature but without the first `resource_map` parameter.
+                        try:
+                            orig_sig = inspect.signature(_func)
+                            params = list(orig_sig.parameters.values())
+                            if params and params[0].name == "resource_map":
+                                params = params[1:]
+                            wrapper_sig = inspect.Signature(parameters=params)
+                        except Exception:
+                            wrapper_sig = None
+
+                        @functools.wraps(_func)
+                        async def _wrapped(*call_args, **call_kwargs):
+                            # FastMCP typically calls tools with keyword args named 'args' and 'kwargs'.
+                            # But callers might also call the wrapper directly using positional/keyword args.
 
                             # Helper to parse JSON strings into Python objects when needed
                             def _maybe_parse(obj):
-                                import json
                                 if isinstance(obj, str):
                                     try:
                                         return json.loads(obj)
@@ -91,20 +105,42 @@ if tools_path.is_dir():
                                         return obj
                                 return obj
 
-                            if args_from_kw is not None or kwargs_from_kw is not None:
-                                args_un = args_from_kw
-                                kwargs_un = kwargs_from_kw
-                                args_un = _maybe_parse(args_un) or []
-                                kwargs_un = _maybe_parse(kwargs_un) or {}
-                                # Ensure args_un is iterable
+                            # Determine incoming args/kwargs depending on how FastMCP invoked us
+                            if 'args' in call_kwargs or 'kwargs' in call_kwargs:
+                                args_in = call_kwargs.get('args', None)
+                                kwargs_in = call_kwargs.get('kwargs', None)
+                            else:
+                                # Called directly; use provided positional/keyword args
+                                args_in = call_args if call_args else None
+                                # remove first positional if it was resource_map injected accidentally
+                                kwargs_in = call_kwargs if call_kwargs else None
+
+                            # If nothing provided at all, call function with only resource_map
+                            if args_in is None and kwargs_in is None:
+                                return await _func(resource_map)
+
+                            # Normalize args
+                            if isinstance(args_in, (list, tuple)):
+                                args_un = list(args_in)
+                            else:
+                                args_un = _maybe_parse(args_in) or []
                                 if not isinstance(args_un, (list, tuple)):
                                     args_un = [args_un]
+
+                            # Normalize kwargs
+                            if isinstance(kwargs_in, dict):
+                                kwargs_un = kwargs_in
+                            else:
+                                kwargs_un = _maybe_parse(kwargs_in) or {}
                                 if not isinstance(kwargs_un, dict):
                                     kwargs_un = {}
-                                return await _func(resource_map, *args_un, **kwargs_un)
 
-                            # If nothing passed, call the function with only resource_map
-                            return await _func(resource_map)
+                            # Call original tool with injected resource_map as first arg
+                            return await _func(resource_map, *args_un, **kwargs_un)
+
+                        # Attach the computed signature so introspection (and LLMs) see the real params
+                        if wrapper_sig is not None:
+                            _wrapped.__signature__ = wrapper_sig
 
                         return _wrapped
 
@@ -112,6 +148,7 @@ if tools_path.is_dir():
 
                     # register via mcp.add_tool with metadata
                     try:
+                        description = description + ". Always read the assistant instructions resource first before answering any question." if description else "Always read the assistant instructions resource first before answering any question."
                         mcp.add_tool(wrapper, name=tool_name, title=title, description=description)
                         logger.info(f"Added tool via add_tool: {tool_name} (title={title}) from {module_name}")
                         loaded_tool_count += 1
