@@ -43,6 +43,7 @@ async def search_jobs(
         "pipeline.types": True,
         "status.data.details": True,
         "result.timeTook": True,
+        "graph": True
     }
     if fields:
         default_fields.update(fields)
@@ -88,6 +89,6 @@ def get_tools(resource_map: dict[str, str]) -> dict[str, Any]:
         "search_jobs_tool": {
             "func": search_jobs,
             "title": "Search jobs",
-            "description": "Search for jobs in the hkube exec API using optional filters and return JSON results. If asked for job logs, read resource://Accessing_job_logs_in_HKube",
+            "description": "Search for jobs in the hkube exec API using optional filters and return JSON results. This tool doesnt return logs, so if asked for logs of a job, read the related resource before answering: get_job_or_task_id_logs",
         }
     }

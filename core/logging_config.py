@@ -6,10 +6,10 @@ from datetime import datetime
 
 
 def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "server.log") -> logging.Logger:
-    """Configure root logging to stdout and a file under `logs_dir`.
+    """Configure root logging to stderr and a file under `logs_dir`.
 
     Idempotent: calling multiple times won't add duplicate handlers.
-    Ensures a file handler writing to logs/<log_file_name> and a StreamHandler to stdout.
+    Ensures a file handler writing to logs/<log_file_name> and a StreamHandler to stderr.
     Returns a module-level logger for callers to use.
     """
     if logs_dir is None:
@@ -56,20 +56,20 @@ def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "s
             fh.setLevel(logging.INFO)
             root_logger.addHandler(fh)
         except Exception:
-            # If file handler cannot be created (permissions, etc), fall back to stdout only
+            # If file handler cannot be created (permissions, etc), fall back to stderr only
             pass
 
-    # Ensure a StreamHandler to stdout exists (don't duplicate)
-    stream_stdout_exists = False
+    # Ensure a StreamHandler to stderr exists (don't duplicate)
+    stream_stderr_exists = False
     for h in root_logger.handlers:
         if isinstance(h, logging.StreamHandler):
-            # compare the stream object to sys.stdout
-            if getattr(h, 'stream', None) is sys.stdout:
-                stream_stdout_exists = True
+            # compare the stream object to sys.stderr
+            if getattr(h, 'stream', None) is sys.stderr:
+                stream_stderr_exists = True
                 break
 
-    if not stream_stdout_exists:
-        sh = logging.StreamHandler(sys.stdout)
+    if not stream_stderr_exists:
+        sh = logging.StreamHandler(sys.stderr)
         sh.setFormatter(formatter)
         sh.setLevel(logging.INFO)
         root_logger.addHandler(sh)
