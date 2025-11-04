@@ -2,6 +2,7 @@ from pathlib import Path
 import logging
 import sys
 from typing import Optional
+from datetime import datetime
 
 
 def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "server.log") -> logging.Logger:
@@ -18,8 +19,11 @@ def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "s
     try:
         logs_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
-        # best-effort: continue if cannot create logs dir
-        pass
+        pass  # best-effort: continue if cannot create logs dir
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name, ext = Path(log_file_name).stem, Path(log_file_name).suffix or ".log"
+    log_file_name = f"{name}_{timestamp}{ext}"
 
     root_logger = logging.getLogger()
     if not root_logger.handlers:
@@ -34,8 +38,7 @@ def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "s
             file_handler.setFormatter(formatter)
             root_logger.addHandler(file_handler)
         except Exception:
-            # If file handler can't be created, keep going with console logging
-            pass
+            pass  # continue with console logging if file handler fails
 
         root_logger.addHandler(stream_handler)
         root_logger.setLevel(logging.INFO)
@@ -43,7 +46,6 @@ def setup_logging(logs_dir: Optional[str | Path] = None, log_file_name: str = "s
     return logging.getLogger(__name__)
 
 
-# convenience function
 def get_logger(name: Optional[str] = None) -> logging.Logger:
     logger = logging.getLogger(name) if name else logging.getLogger(__name__)
     return logger
