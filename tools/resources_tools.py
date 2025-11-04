@@ -41,6 +41,17 @@ async def read_resource(resource_map: dict[str, str], *args, query: str | None =
 
 def get_tools(resource_map: dict[str, str]) -> dict[str, Any]:
     return {
-        "list_resources": {"func": list_resources, "title": "List resources", "description": "List all resource files available to the assistant."},
-        "read_resource": {"func": read_resource, "title": "Read resource", "description": "Return the content of a named resource (supports partial matching)."}
+        "list_resources": {"func": list_resources, "title": "List resources", "description": "Return a newline-separated list of available resource names."},
+        "read_resource": {
+            "func": read_resource,
+            "title": "Read resource",
+            "description": """Return the content of a resource given a name or partial name.
+
+    Behavior:
+    - Exact case-insensitive match on the filename stem returns the content.
+    - If multiple matches for a partial query, returns a short list of matches.
+    - If one fuzzy match, returns that resource content.
+    - If nothing found, returns a helpful message.
+    """
+        }
     }
