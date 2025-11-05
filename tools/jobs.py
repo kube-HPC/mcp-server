@@ -136,4 +136,9 @@ def get_tools() -> dict[str, Any]:
             "title": "Get job or task logs",
             "description": "Automatically reads the how_to_get_logs resource and then retrieves logs.",
         },
+        "execute_job_tool": {
+            "func": execute_job,
+            "title": "Execute Pipeline",
+            "description": "Executes a pipeline.  Returns the newly created job id.",
+        },
     }
