@@ -5,14 +5,26 @@ import logging
 from utils import get_endpoint, robust_parse_text  # type: ignore
 
 
-async def execute_job(pipelineName: str) -> str:
-    """Execute a job in HKube given the pipeline name."""
+async def execute_job(
+        pipeline_name: str,
+        flow_input: Any = None
+) -> str:
+    """Execute a job in HKube given the pipeline name.
+
+    Args:
+        pipeline_name: Name of the stored pipeline to execute.
+        flow_input: Optional arbitrary payload (string/array/object) to be sent
+                    as the `flowInput` key in the create job request.
+    """
 
     exec_url = get_endpoint("exec_stored")
     if not exec_url:
         return "No exec endpoint configured."
 
-    payload = {"name": pipelineName}
+    payload = {"name": pipeline_name}
+    if flow_input is not None:
+        # send flow input as-is (could be str/list/dict) under the key expected by hkube
+        payload["flowInput"] = flow_input
 
     async with httpx.AsyncClient() as client:
         try:
