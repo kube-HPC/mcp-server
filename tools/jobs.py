@@ -33,6 +33,7 @@ async def execute_job(pipelineName: str) -> str:
 
 
 async def search_jobs(
+    job_id: str | None = None,
     experiment_name: str | None = None,
     pipeline_name: str | None = None,
     pipeline_type: str | None = None,
@@ -79,7 +80,7 @@ async def search_jobs(
         "query": {
             "datesRange": dates_range,
             "experimentName": experiment_name,
-            "pipelineName": pipeline_name,
+            "pipelineName": job_id if job_id is not None else pipeline_name,
             "pipelineType": pipeline_type,
             "algorithmName": algorithm_name,
             "pipelineStatus": pipeline_status,
