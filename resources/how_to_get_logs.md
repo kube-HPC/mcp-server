@@ -1,4 +1,5 @@
 # Accessing HKube Job Logs
+YOU MUST FOLLOW THIS PROCEDURE TO ENSURE ACCURATE AND EFFICIENT LOG RETRIEVAL.
 
 ## Objective
 │ This guide explains how to retrieve and display HKube job logs using available tools and Elasticsearch queries.                                                                                                                  │
@@ -6,6 +7,8 @@
 ---
 
 ## Enhanced Procedure
+
+CRITICAL NOTE: DO NOT GIVE THE GRAPH DETAILS WHEN ASKED FOR LOGS. ONLY RETURN THE LOGS.
 
 1. **Locating the Job**
    - First use the search job tool to locate the desired job by the user requirements.
@@ -17,7 +20,8 @@
    - Compile a list of all `taskId` values from `job.graph.nodes`.
 
 3. **Query Logs from Elasticsearch**
-   - You will have to search in the `logstash-*` index. You can use the get indices tool if needed.can you 
+   - You will have to search in the `logstash-*` index. You can use the get indices tool if needed.
+   - Each logstash has a date in its name. You should use the one with the same date as the `startTime` of the job.
    - Filter by Field: Use the field `meta.internal.taskId` to match the extracted `taskId` values.
    - You have to use the Elasticsearch tool (`stdio_search`) which expects those arguments: `index`, `query_body`.
    - The arguments should be as follows:
@@ -28,17 +32,19 @@
      - `meta.timestamp`: Indicates when the log was recorded.
 
 4. **Display Log Information**
+   - In case of error in the node graph, show only logs which look like error logs, for example logs with Traceback (logs that suppose to help the developer fix the problem).
+   - IMPORTANT: If you see a log of a trace back, show it!
    - Present the retrieved logs, grouped by node.
    - Format the output to show `meta.timestamp` followed by the `message` for better readability.
 
 ---
 
 ## Field Definitions
-| Field | Description                                                           |
-|:------|:----------------------------------------------------------------------|
-| `taskId` | Unique identifier of the task within the job.                         |
-| `message` | Text content of the log emitted by the executing algorithm.           |
-| `meta.timestamp` | Timestamp indicating when the log entry was created.                  |
+| Field            | Description                                                 |
+|:-----------------|:------------------------------------------------------------|
+| `taskId`         | Unique identifier of the task within the job.               |
+| `message`        | Text content of the log emitted by the executing algorithm. |
+| `meta.timestamp` | Timestamp indicating when the log entry was created.        |
 
 ---
 

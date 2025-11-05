@@ -155,6 +155,6 @@ def get_tools() -> dict[str, Any]:
         "execute_job_tool": {
             "func": execute_job,
             "title": "Execute Pipeline",
-            "description": "Executes a pipeline.  Returns the newly created job id.",
+            "description": "Executes a pipeline.  Returns the newly created job id. Should use get pipeline tool if needs to change the flow input keys and values.",
         },
     }
