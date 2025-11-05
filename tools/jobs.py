@@ -5,6 +5,33 @@ import logging
 from utils import get_endpoint, robust_parse_text  # type: ignore
 
 
+async def execute_job(pipelineName: str) -> str:
+    """Execute a job in HKube given the pipeline name."""
+
+    exec_url = get_endpoint("exec_stored")
+    if not exec_url:
+        return "No exec endpoint configured."
+
+    payload = {"name": pipelineName}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(exec_url, json=payload, timeout=30.0)
+            response.raise_for_status()
+            try:
+                data = response.json()
+            except Exception as e:
+                text = response.text
+                data = robust_parse_text(text)
+                logging.getLogger(__name__).warning(
+                    f"Failed to decode JSON from {exec_url}: {e}; returning parsed fallback (raw/ndjson/first-chunk)"
+                )
+            return str(data)
+        except Exception as e:
+            return f"Failed to execute job: {e}"
+
+
+
 async def search_jobs(
     experiment_name: str | None = None,
     pipeline_name: str | None = None,

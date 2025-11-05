@@ -11,4 +11,5 @@ api_paths:
   algorithms: "/hkube/api-server/api/v1/store/algorithms"
   pipelines: "/hkube/api-server/api/v1/store/pipelines"
   exec_search: "/hkube/api-server/api/v1/exec/search"
+  exec_stored: "/hkube/api-server/api/v1/exec/stored"
 
