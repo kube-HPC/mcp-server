@@ -83,12 +83,30 @@ async def search_jobs(
         except Exception as e:
             return f"Failed to search jobs: {e}"
 
+async def get_logs_with_instruction() -> str:
+    """Return instructions for retrieving logs from Elastic."""
+    from tools.resources_tools import get_tools  # type: ignore
 
-def get_tools(resource_map: dict[str, str]) -> dict[str, Any]:
+    # Load the resource reading tool
+    tools = get_tools()
+    read_resource_func = tools["read_resource"]["func"]
+
+    # Read the guide on how to get logs
+    how_to = await read_resource_func("how_to_get_logs")
+
+    return how_to
+
+
+def get_tools() -> dict[str, Any]:
     return {
         "search_jobs_tool": {
             "func": search_jobs,
             "title": "Search jobs",
-            "description": "Search for jobs in the hkube exec API using optional filters and return JSON results. This tool doesnt return logs, so if asked for logs of a job, read the related resource before answering: get_job_or_task_id_logs",
-        }
+            "description": "Search for jobs in the hkube exec API using optional filters and return JSON results. This tool doesnt return logs.",
+        },
+        "get_job_logs_tool": {
+            "func": get_logs_with_instruction,
+            "title": "Get job or task logs",
+            "description": "Automatically reads the how_to_get_logs resource and then retrieves logs.",
+        },
     }
